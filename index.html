@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>積み込み確認</title>
+<style>
+  :root { --base:#1c1f24; --ok:#1f9d55; --ng:#d63a3a; --over:#e0a100; --text:#f4f4f2; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; }
+  body { background:var(--base); color:var(--text);
+    font-family:"Hiragino Sans","Yu Gothic",Meiryo,sans-serif;
+    display:flex; flex-direction:column; transition:background .15s; }
+  body.ok { background:var(--ok); }
+  body.ng { background:var(--ng); }
+  body.over { background:var(--over); color:#222; }
+  header { padding:12px 16px; display:flex; gap:8px; align-items:center; }
+  header label { font-size:14px; }
+  header input { flex:1; font-size:18px; padding:8px; border-radius:6px; border:0; }
+  #reader { width:100%; max-width:480px; margin:0 auto; }
+  #result { flex:1; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; text-align:center; padding:16px; }
+  #mark { font-size:96px; font-weight:700; line-height:1.1; }
+  #name { font-size:22px; margin-top:8px; }
+  #count { font-size:40px; font-weight:700; margin-top:8px; }
+  button { font-size:16px; padding:10px 16px; border-radius:6px; border:0; margin:0 16px 16px; }
+</style>
+</head>
+<body>
+<header>
+  <label for="course">コース</label>
+  <input id="course" value="池袋">
+</header>
+<div id="reader"></div>
+<div id="result">
+  <div id="mark">待機中</div>
+  <div id="name">バーコードにカメラを向けてください</div>
+  <div id="count"></div>
+</div>
+<button id="start">カメラを開始</button>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<script>
+// ★ここに、Apps Scriptのウェブアプリ URL（/exec で終わるもの）を入れる
+const API_URL = "ここにURLを貼り付け";
+
+const courseEl = document.getElementById("course");
+try { courseEl.value = localStorage.getItem("course") || courseEl.value; } catch (e) {}
+courseEl.addEventListener("change", () => {
+  try { localStorage.setItem("course", courseEl.value); } catch (e) {}
+});
+
+const body = document.body;
+const markEl = document.getElementById("mark");
+const nameEl = document.getElementById("name");
+const countEl = document.getElementById("count");
+
+let busy = false;
+let lastJan = "", lastTime = 0;
+
+function show(cls, mark, name, count) {
+  body.className = cls;
+  markEl.textContent = mark;
+  nameEl.textContent = name || "";
+  countEl.textContent = count || "";
+  if (navigator.vibrate) navigator.vibrate(cls === "ok" ? 80 : [150, 80, 150]);
+}
+
+async function onScan(jan) {
+  const now = Date.now();
+  if (busy || (jan === lastJan && now - lastTime < 2000)) return;
+  busy = true; lastJan = jan; lastTime = now;
+  try {
+    const url = API_URL + "?course=" + encodeURIComponent(courseEl.value) +
+                "&jan=" + encodeURIComponent(jan);
+    const r = await (await fetch(url)).json();
+    if (r.result === "OK") {
+      show("ok", "OK", r.name, r.done + " / " + r.plan);
+    } else if (r.result === "OVER") {
+      show("over", "多い", r.name, r.done + " / " + r.plan + "（予定数を超えます）");
+    } else {
+      show("ng", "NG", "このコースにない商品です", jan);
+    }
+  } catch (e) {
+    show("ng", "通信エラー", "電波を確認して、もう一度読み取ってください", "");
+  }
+  setTimeout(() => { busy = false; }, 800);
+}
+
+document.getElementById("start").addEventListener("click", async () => {
+  const scanner = new Html5Qrcode("reader", {
+    formatsToSupport: [Html5QrcodeSupportedFormats.EAN_13]
+  });
+  try {
+    await scanner.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: { width: 280, height: 120 } },
+      onScan
+    );
+    document.getElementById("start").style.display = "none";
+  } catch (e) {
+    show("ng", "カメラ不可", "ブラウザのカメラ許可を確認してください", "");
+  }
+});
+</script>
+</body>
+</html>
